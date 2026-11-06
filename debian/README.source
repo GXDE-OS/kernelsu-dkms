@@ -1,0 +1,67 @@
+Building kernelsu-dkms
+======================
+
+Build dependencies (debian/control):
+
+    sudo apt install build-essential debhelper dpkg-dev cargo rustc git patch
+
+Then, from the repository root:
+
+    dpkg-buildpackage -us -uc          # source + binary package
+    dpkg-buildpackage -us -uc -b      # binary package only
+
+The resulting kernelsu-dkms_<version>_<arch>.deb is written to the parent
+directory. The package is Architecture: any because it ships the natively
+compiled ksuinit binary. Install it with:
+
+    sudo apt install ../kernelsu-dkms_*_$(dpkg --print-architecture).deb
+
+Source format and versioning
+----------------------------
+The source format is 3.0 (native): this repository *is* the packaging
+source, while the KernelSU upstream tree is fetched during the build, so no
+orig.tar.gz is needed. A native version must not contain a Debian revision,
+so debian/changelog uses the upstream-style version directly. For
+packaging-only changes, bump with a suffix instead of a "-1" revision:
+
+    dch -v 3.3.0+7+gfde078c9+deb1 "Packaging fix"
+
+Where the upstream sources come from
+------------------------------------
+debian/rules (target prepare-source) shallow-clones
+https://github.com/supechicken/KernelSU.git, branch waydroid-experimental,
+into ./kernelsu. It then applies 0001-Patch-Kbuild-for-dkms.patch so that
+kernel/Kbuild stops probing for a git repository, builds userspace/ksuinit
+with cargo, and copies kernel/ into the DKMS tree. An existing ./kernelsu
+checkout and the ./.deb-build cargo cache are reused across builds (both
+are excluded from the source tarball). "debian/rules clean" only removes
+debhelper's staging directory; delete ./kernelsu and ./.deb-build manually
+for a from-scratch rebuild.
+
+The generated DKMS tree is placed in debian/kernelsu-dkms/usr/src/ and is
+excluded from the source tarball by debian/source/options.
+
+Build knobs (pass as environment variables to dpkg-buildpackage, because
+debian/rules declares them with ?=):
+
+    KSU_REPO          upstream git URL
+    KSU_BRANCH        branch to clone (default waydroid-experimental)
+    KSU_COMMIT        pin the checkout to a commit hash
+    KSU_SRC           path to a pre-existing checkout (default ./kernelsu)
+    KSU_GIT_VERSION   value substituted into dkms.conf; setting it skips the
+                      "git fetch --unshallow" history lookup
+    KSU_UNSHALLOW=0   do not unshallow the clone (faster; set
+                      KSU_GIT_VERSION explicitly in that case)
+
+For an offline build, prepare ./kernelsu and a populated cargo cache (or a
+vendored crate directory) first, then for example:
+
+    KSU_GIT_VERSION=12345 KSU_UNSHALLOW=0 CARGO_NET_OFFLINE=true \
+      dpkg-buildpackage -us -uc -b
+
+Updating the version
+--------------------
+updater.sh reads the latest upstream release, writes a new
+debian/changelog entry with dch and verifies the build. The old
+makepkg/.SRCINFO/PKGBUILD workflow is no longer used for Debian builds;
+those files are kept only for reference.

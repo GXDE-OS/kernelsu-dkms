@@ -1,0 +1,124 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+#
+# Build rules for kernelsu-dkms, replacing the former Arch PKGBUILD.
+#
+#   PKGBUILD prepare()  -> apply 0001-Patch-Kbuild-for-dkms.patch
+#   PKGBUILD build()    -> cargo build --release in userspace/ksuinit
+#   PKGBUILD package()  -> populate /usr/src/kernelsu-<version> + helpers
+#
+# The KernelSU tree is not stored in this repository: it is fetched while
+# building. See debian/README.source for all the knobs.
+
+include /usr/share/dpkg/pkg-info.mk
+
+export DH_VERBOSE ?= 0
+
+KSU_REPO        ?= https://github.com/supechicken/KernelSU.git
+KSU_BRANCH      ?= waydroid-experimental
+KSU_COMMIT      ?=
+KSU_SRC         ?= $(CURDIR)/kernelsu
+KSU_GIT_VERSION ?=
+KSU_UNSHALLOW   ?= 1
+
+KSU_VERSION  := $(DEB_VERSION_UPSTREAM)
+BUILD_DIR    := $(CURDIR)/.deb-build
+CARGO_DIR    := $(BUILD_DIR)/cargo
+COUNT_FILE   := $(BUILD_DIR)/ksu-git-version
+DKMS_DEST    := debian/kernelsu-dkms/usr/src/kernelsu-$(KSU_VERSION)
+KBUILD_PATCH := $(CURDIR)/0001-Patch-Kbuild-for-dkms.patch
+
+%:
+	dh $@
+
+.PHONY: prepare-source
+
+prepare-source:
+	mkdir -p "$(BUILD_DIR)"
+	@if [ -f "$(KSU_SRC)/kernel/Kbuild" ] || [ -f "$(KSU_SRC)/kernel/Makefile" ]; then \
+		echo "Using existing KernelSU checkout: $(KSU_SRC)"; \
+	else \
+		echo "Fetching KernelSU ($(KSU_BRANCH)) from $(KSU_REPO)"; \
+		rm -rf "$(KSU_SRC)"; \
+		git -c http.version=HTTP/1.1 clone --depth 1 --branch "$(KSU_BRANCH)" "$(KSU_REPO)" "$(KSU_SRC)" || { \
+			echo "ERROR: could not fetch KernelSU; set KSU_SRC to an existing checkout" >&2; \
+			exit 1; \
+		}; \
+	fi
+	@if [ -n "$(KSU_COMMIT)" ]; then \
+		echo "Pinning KernelSU to commit $(KSU_COMMIT)"; \
+		git -C "$(KSU_SRC)" -c http.version=HTTP/1.1 fetch --depth 1 origin "$(KSU_COMMIT)"; \
+		git -C "$(KSU_SRC)" checkout --force FETCH_HEAD; \
+	fi
+	@cd "$(KSU_SRC)" && \
+	  if git apply --check "$(KBUILD_PATCH)" 2>/dev/null; then \
+	    git apply "$(KBUILD_PATCH)"; \
+	  elif git apply --reverse --check "$(KBUILD_PATCH)" 2>/dev/null; then \
+	    echo "DKMS Kbuild patch already applied"; \
+	  else \
+	    echo "ERROR: $(KBUILD_PATCH) does not apply to $(KSU_SRC)" >&2; \
+	    exit 1; \
+	  fi
+	@if [ -n "$(KSU_GIT_VERSION)" ]; then \
+		printf '%s\n' "$(KSU_GIT_VERSION)" > "$(COUNT_FILE)"; \
+	else \
+		if [ "$(KSU_UNSHALLOW)" = "1" ] && \
+		   [ "$$(git -C "$(KSU_SRC)" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then \
+			git -C "$(KSU_SRC)" -c http.version=HTTP/1.1 fetch --unshallow --no-tags origin "$(KSU_BRANCH)" >/dev/null 2>&1 || \
+			  echo "WARNING: could not fetch full history; set KSU_GIT_VERSION explicitly" >&2; \
+		fi; \
+		git -C "$(KSU_SRC)" rev-list --count HEAD 2>/dev/null > "$(COUNT_FILE)"; \
+	fi
+	@test -s "$(COUNT_FILE)" || printf '1\n' > "$(COUNT_FILE)"
+	@echo "KernelSU git version: $$(cat "$(COUNT_FILE)")"
+
+override_dh_auto_configure:
+	@:
+
+override_dh_auto_build: prepare-source
+	cd "$(KSU_SRC)/userspace/ksuinit" && \
+	  cargo build --release --target-dir "$(CARGO_DIR)"
+	test -x "$(CARGO_DIR)/release/ksuinit"
+
+override_dh_auto_test:
+	@:
+
+override_dh_auto_install: prepare-source
+	mkdir -p "$(DKMS_DEST)"
+	cp -rpRLt "$(DKMS_DEST)" "$(KSU_SRC)/kernel/."
+	find "$(DKMS_DEST)" -name '.gitignore' -delete
+	# GXDE 6.6 kernels backport APIs that mainline only gained in 6.8
+	# (anon_inode_create_getfile) and 6.15 (four-argument change_pid).
+	# KernelSU selects those paths by LINUX_VERSION_CODE alone, so lower
+	# the two gates. Kernels >= 6.15 keep exactly the same code paths.
+	sed -i 's/KERNEL_VERSION(6, 8, 0)/KERNEL_VERSION(6, 6, 0)/' \
+	    "$(DKMS_DEST)/infra/file_wrapper.c"
+	sed -i 's/KERNEL_VERSION(6, 15, 0)/KERNEL_VERSION(6, 6, 0)/g' \
+	    "$(DKMS_DEST)/supercall/dispatch.c"
+	sed -e 's|@PKGVER@|$(KSU_VERSION)|g' \
+	    -e "s|@KSU_GIT_VERSION@|$$(cat "$(COUNT_FILE)")|g" \
+	    "$(CURDIR)/dkms.conf" > "$(DKMS_DEST)/dkms.conf"
+	install -m 644 "$(CURDIR)/Makefile" "$(DKMS_DEST)/Makefile"
+	install -D -m 644 "$(CURDIR)/00-kernelsu.conf" \
+	    debian/kernelsu-dkms/etc/modprobe.d/00-kernelsu.conf
+	install -D -m 755 "$(CARGO_DIR)/release/ksuinit" \
+	    debian/kernelsu-dkms/usr/bin/kernelsu-loader
+	install -D -m 755 "$(CURDIR)/load-kernelsu.in" \
+	    debian/kernelsu-dkms/usr/bin/load-kernelsu
+
+# The Rust release binary carries no .debug_info, so dwz has nothing to do.
+override_dh_dwz:
+	@:
+
+# Keep the Rust binary unstripped, matching PKGBUILD options=('!strip').
+override_dh_strip:
+	@:
+
+override_dh_auto_clean:
+	@:
+
+# .deb-build/ is a build cache (cargo target dir and generated version
+# values). debian/source/options excludes it from the source tarball, and it
+# is reused across builds; remove it manually for a from-scratch rebuild.
+override_dh_clean:
+	dh_clean

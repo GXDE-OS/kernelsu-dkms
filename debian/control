@@ -1,0 +1,29 @@
+Source: kernelsu-dkms
+Section: kernel
+Priority: optional
+Maintainer: gfdgd_xi <3025613752@qq.com>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc,
+               git,
+               patch,
+               dpkg-dev,
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/supechicken/KernelSU
+
+Package: kernelsu-dkms
+Architecture: any
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+         dkms (>= 2.1.0.0),
+Suggests: modloader
+Description: Kernel based root solution for Android (DKMS module)
+ KernelSU implements a root solution in kernel space. This package ships the
+ kernel module sources from the waydroid-experimental fork as a DKMS tree,
+ intended for container based solutions such as Waydroid on regular Linux
+ kernels.
+ .
+ Besides the DKMS module it installs the ksuinit binary as
+ /usr/bin/kernelsu-loader, a modprobe.d alias and the load-kernelsu helper
+ script (used together with the modloader utility).

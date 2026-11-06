@@ -1,0 +1,38 @@
+kernelsu-dkms for Debian
+========================
+
+This package ships the KernelSU kernel module as a DKMS source tree in
+/usr/src/kernelsu-<version>. DKMS rebuilds the module whenever a new kernel
+or new kernel headers are installed.
+
+Getting the module built
+------------------------
+The postinst builds the module for every installed kernel that has matching
+headers under /lib/modules/<kver>/build, not just the running kernel. A
+kernel without headers is skipped; to cover it, install its headers and run:
+
+    sudo apt install linux-headers-<kver>
+    sudo dkms autoinstall
+
+dkms.conf sets AUTOINSTALL="yes", so DKMS also builds the module
+automatically when new kernel headers are installed later. Check the result
+with:
+
+    dkms status -m kernelsu
+    sudo modprobe ksu
+
+GXDE 6.6 kernels backport anon_inode_create_getfile (mainline 6.8) and the
+four-argument change_pid (mainline 6.15). The DKMS sources installed by this
+package have the matching version gates lowered so those kernels build
+correctly. On a stock mainline kernel without these backports the build can
+still fail; the postinst reports such kernels without aborting installation.
+
+Installed files
+---------------
+  /usr/src/kernelsu-<version>/         DKMS module sources and dkms.conf
+  /usr/bin/kernelsu-loader             ksuinit userspace helper
+  /usr/bin/load-kernelsu               loads the module through modloader
+  /etc/modprobe.d/00-kernelsu.conf     makes "ksu" an alias of "kernelsu"
+
+load-kernelsu needs the optional "modloader" utility and root privileges.
+Use "load-kernelsu --unload-first" to reload an already loaded module.
