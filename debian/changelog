@@ -1,4 +1,4 @@
-kernelsu-dkms (3.3.0+7+gfde078c9) unstable; urgency=medium
+kernelsu-dkms (3.3.0+8+gfde078c9) unstable; urgency=medium
 
   * Initial Debian packaging converted from the Arch Linux PKGBUILD.
   * Ship the KernelSU DKMS sources, ksuinit loader and module configuration.
