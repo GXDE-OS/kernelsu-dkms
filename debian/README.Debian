@@ -44,10 +44,13 @@ Verify with "lsmod | grep kernelsu" and the KernelSU messages in dmesg.
 build.
 
 GXDE 6.6 kernels backport anon_inode_create_getfile (mainline 6.8) and the
-four-argument change_pid (mainline 6.15). The DKMS sources installed by this
-package have the matching version gates lowered so those kernels build
-correctly. On a stock mainline kernel without these backports the build can
-still fail; the postinst reports such kernels without aborting installation.
+four-argument change_pid plus free_pids (mainline 6.15). The matching version
+gates are lowered automatically: the anon_inode gate for every kernel, and the
+change_pid gate only for 6.6.* kernels at DKMS build time (stock 6.12 trees
+still have the old three-argument change_pid, and kernels >= 6.15 take the
+same path with the original gate). On a stock mainline kernel without these
+backports the build can still fail; the postinst reports such kernels without
+aborting installation.
 
 Installed files
 ---------------

@@ -87,14 +87,13 @@ override_dh_auto_install: prepare-source
 	mkdir -p "$(DKMS_DEST)"
 	cp -rpRLt "$(DKMS_DEST)" "$(KSU_SRC)/kernel/."
 	find "$(DKMS_DEST)" -name '.gitignore' -delete
-	# GXDE 6.6 kernels backport APIs that mainline only gained in 6.8
-	# (anon_inode_create_getfile) and 6.15 (four-argument change_pid).
-	# KernelSU selects those paths by LINUX_VERSION_CODE alone, so lower
-	# the two gates. Kernels >= 6.15 keep exactly the same code paths.
+	# GXDE 6.6 kernels backport anon_inode_create_getfile (mainline 6.8), so
+	# lower that gate unconditionally: kernels >= 6.8 have the function
+	# natively and take the same code path either way. The change_pid gate
+	# (mainline 6.15) is handled per-kernel in dkms.conf instead, because
+	# stock 6.12 trees still have the old three-argument change_pid.
 	sed -i 's/KERNEL_VERSION(6, 8, 0)/KERNEL_VERSION(6, 6, 0)/' \
 	    "$(DKMS_DEST)/infra/file_wrapper.c"
-	sed -i 's/KERNEL_VERSION(6, 15, 0)/KERNEL_VERSION(6, 6, 0)/g' \
-	    "$(DKMS_DEST)/supercall/dispatch.c"
 	sed -e 's|@PKGVER@|$(KSU_VERSION)|g' \
 	    -e "s|@KSU_GIT_VERSION@|$$(cat "$(COUNT_FILE)")|g" \
 	    "$(CURDIR)/dkms.conf" > "$(DKMS_DEST)/dkms.conf"
