@@ -33,4 +33,14 @@ case "$KSU_MODULE" in
   *) GET_CMD="cat" ;;
 esac
 
-$GET_CMD "$KSU_MODULE" | modloader -
+if command -v modloader >/dev/null 2>&1; then
+  $GET_CMD "$KSU_MODULE" | modloader -
+elif [ -x /usr/bin/kernelsu-loader ]; then
+  # kernelsu-loader (ksuinit) relocates the module's unexported symbols
+  # itself; it reads the plain copy under /lib/modules/$KVERSION/extra/
+  # that the package postinst publishes.
+  exec /usr/bin/kernelsu-loader
+else
+  echo "${0##*/}: neither 'modloader' nor /usr/bin/kernelsu-loader is available." >&2
+  exit 1
+fi

@@ -19,7 +19,29 @@ automatically when new kernel headers are installed later. Check the result
 with:
 
     dkms status -m kernelsu
-    sudo modprobe ksu
+
+Loading the module
+------------------
+Plain "modprobe kernelsu" cannot load this module: it references kernel
+symbols (kallsyms_lookup_name, path_mount, ...) that stock kernels do not
+export, and the in-kernel module loader can only bind exported symbols.
+Attempts end with a flood of "Unknown symbol ... (err -2)" in dmesg.
+
+The module is instead loaded by a userspace loader that relocates those
+symbols against /proc/kallsyms and then calls init_module. For it, the
+package postinst also publishes an uncompressed copy of every built module
+as /lib/modules/<kver>/extra/kernelsu.ko. Any of the following loads the
+module (as root):
+
+    sudo kernelsu-loader          # ships with this package, no extra deps
+    sudo load-kernelsu            # uses "modloader" when installed, and
+                                  # falls back to kernelsu-loader
+    # or simply start Waydroid: its in-container ksuinit loads the module
+    # from that same path.
+
+Verify with "lsmod | grep kernelsu" and the KernelSU messages in dmesg.
+"sudo modprobe kernelsu" is expected to fail and is not an error of the
+build.
 
 GXDE 6.6 kernels backport anon_inode_create_getfile (mainline 6.8) and the
 four-argument change_pid (mainline 6.15). The DKMS sources installed by this
@@ -31,8 +53,12 @@ Installed files
 ---------------
   /usr/src/kernelsu-<version>/         DKMS module sources and dkms.conf
   /usr/bin/kernelsu-loader             ksuinit userspace helper
-  /usr/bin/load-kernelsu               loads the module through modloader
+  /usr/bin/load-kernelsu               module loading wrapper
   /etc/modprobe.d/00-kernelsu.conf     makes "ksu" an alias of "kernelsu"
+  /lib/modules/<kver>/extra/kernelsu.ko  uncompressed copy for the loaders,
+                                       published by the postinst per kernel
 
-load-kernelsu needs the optional "modloader" utility and root privileges.
-Use "load-kernelsu --unload-first" to reload an already loaded module.
+load-kernelsu uses the optional "modloader" utility when it is installed
+and falls back to the bundled kernelsu-loader otherwise; both paths need
+root privileges. Use "load-kernelsu --unload-first" to reload an already
+loaded module.

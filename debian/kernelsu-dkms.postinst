@@ -12,6 +12,37 @@ if ! command -v dkms >/dev/null 2>&1; then
     exit 0
 fi
 
+# The KernelSU module references kernel symbols that stock kernels do not
+# export (kallsyms_lookup_name, path_mount, ...), so modprobe can never bind
+# it. It must be loaded by kernelsu-loader / ksuinit, which relocate those
+# symbols against /proc/kallsyms and expect an uncompressed module at
+# /lib/modules/<kver>/extra/kernelsu.ko. DKMS installs into updates/dkms/
+# (usually compressed), so also publish a plain copy for the loaders.
+install_extra_copy() {
+    kver=$1
+    ko=$(modinfo -k "$kver" -n kernelsu 2>/dev/null) || ko=
+    [ -f "$ko" ] || ko=$(find "/lib/modules/$kver" -name 'kernelsu.ko*' \
+        ! -path '*/extra/*' 2>/dev/null | head -n 1)
+    [ -f "$ko" ] || return 0
+    case "$ko" in
+        *.zst) cmd="zstd -dc" ;;
+        *.xz) cmd="xz -dc" ;;
+        *.gz) cmd="gzip -dc" ;;
+        *) cmd="cat" ;;
+    esac
+    if ! command -v "${cmd%% *}" >/dev/null 2>&1; then
+        echo "kernelsu-dkms: ${cmd%% *} unavailable, no loader copy for $kver" >&2
+        return 0
+    fi
+    mkdir -p "/lib/modules/$kver/extra"
+    if $cmd "$ko" > "/lib/modules/$kver/extra/kernelsu.ko.new"; then
+        mv -f "/lib/modules/$kver/extra/kernelsu.ko.new" \
+            "/lib/modules/$kver/extra/kernelsu.ko"
+    else
+        rm -f "/lib/modules/$kver/extra/kernelsu.ko.new"
+    fi
+}
+
 for src in /usr/src/kernelsu-*; do
     [ -d "$src" ] || continue
     [ -f "$src/dkms.conf" ] || continue
@@ -36,6 +67,7 @@ for src in /usr/src/kernelsu-*; do
         total=$((total + 1))
         if dkms install -m kernelsu -v "$version" -k "$kver"; then
             ok=$((ok + 1))
+            install_extra_copy "$kver"
         else
             failed="$failed $kver"
             echo "kernelsu-dkms: build failed for $kver; see" \
